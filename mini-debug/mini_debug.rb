@@ -15,7 +15,7 @@
 
 require "irb"
 
-class MiniDebug
+module MiniDebug
   Breakpoint = Struct.new :name, :file, :line
 
   class << self
@@ -58,7 +58,8 @@ class MiniDebug
     def start
       @breakpoints = []
       create_break_tracepoint
-      @step_depth = nil
+      @stepping = false
+      @step_depth = 0
       create_depth_tracepoint
       self
     end
