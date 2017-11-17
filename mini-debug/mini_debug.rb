@@ -21,95 +21,79 @@ module MiniDebug
   class << self
 
     def add_breakpoint name, file, line
-      @break_tracepoint.enable if @breakpoints.empty?
       @breakpoints << Breakpoint.new(name, file, line)
-      self
     end
 
     def delete_breakpoint name
       @breakpoints.delete_if{ |b| b.name == name }
-      @break_tracepoint.disable if @breakpoints.empty?
-      self
     end
 
     def cont irb_context
       @stepping = false
-      @depth_tracepoint.disable
       irb_context.exit
     end
 
     def step_over irb_context
-      @step_depth = 0
+      @target_depth = @depth
       irb_context.exit
     end
 
     def step_in irb_context
-      @step_depth = -1
+      @target_depth = @depth + 1
       irb_context.exit
     end
 
     def step_out irb_context
-      @step_depth = 1
+      @target_depth = @depth - 1
       irb_context.exit
+    end
+
+    def start
+      @breakpoints = []
+      @stepping = false
+      @depth = 0
+      create_break_tracepoint
+      create_depth_tracepoints
     end
 
     private
 
-    def start
-      @breakpoints = []
-      create_break_tracepoint
-      @stepping = false
-      @step_depth = 0
-      create_depth_tracepoint
-      self
-    end
-
     def create_break_tracepoint
-      @break_tracepoint = TracePoint.new :line do |tp|
-        b = @breakpoints.find{ |b| tp.path == b.file && tp.lineno == b.line }
-        if b
-          puts "**** Hit breakpoint: #{b.name} ****"
+      TracePoint.trace :line do |tp|
+        bp = @breakpoints.find{ |b| b.file == tp.path && b.line == tp.lineno }
+        if bp
+          puts "**** Hit breakpoint: #{bp.name} ****"
           @stepping = true
-          @step_depth = 0
-          @depth_tracepoint.enable unless @depth_tracepoint.enabled?
+          @target_depth = @depth
         end
-        if @stepping && @step_depth <= 0
-          puts "**** Breaking at #{tp.defined_class}##{tp.callee_id} (#{tp.path}:#{tp.lineno}) ****"
+        if @stepping && @depth <= @target_depth
+          puts "**** At #{tp.defined_class}##{tp.method_id} (#{tp.path}:#{tp.lineno})"
           tp.binding.irb
         end
       end
     end
 
-    def create_depth_tracepoint
-      @depth_tracepoint = TracePoint.new :call, :b_call, :return, :b_return do |tp|
-        if tp.event.to_s.end_with? "return"
-          @step_depth -= 1
-        else
-          @step_depth += 1
-        end
-      end
+    def create_depth_tracepoints
+      TracePoint.trace :call, :b_call { |tp| @depth += 1 }
+      TracePoint.trace :return, :b_return { |tp| @depth -= 1 }
     end
 
   end
-
-  start
 end
-
 
 module IRB::ExtendCommandBundle
   def cont
     MiniDebug.cont irb_context
   end
-
   def step_over
     MiniDebug.step_over irb_context
   end
-
   def step_in
     MiniDebug.step_in irb_context
   end
-
   def step_out
     MiniDebug.step_out irb_context
   end
 end
+
+MiniDebug.start
